@@ -5,7 +5,7 @@ date: "`r Sys.Date()`"
 output: html_document
 ---
 
-My objective is to model the relationship between indicators of poverty and violent crime across Philadelphia census tracts. To do this, I'm using the publicly available ProgressPHL [dataset](https://controller.phila.gov/philadelphia-audits/progressphl/#/). The data detail a collection of social, economic, and environmental indicators that fall within three thematic dimensions: Basic Human Needs, Foundations of Wellbeing, and Opportunity. 
+My objective is to model the relationship between and indicator of poverty and violent crime across Philadelphia census tracts. To do this, I'm using the publicly available ProgressPHL [dataset](https://controller.phila.gov/philadelphia-audits/progressphl/#/). The data detail a collection of social, economic, and environmental indicators that fall within three thematic dimensions: Basic Human Needs, Foundations of Wellbeing, and Opportunity. 
 
 ```{r Importing Data}
 setwd("C:/Users/johnsonl/OneDrive - american.edu/R/Philadelphia_Violent_Crime")
@@ -31,55 +31,64 @@ histViol <- ggplot(data=phillyWide, aes(x=violent_crime_rate)) + geom_histogram(
 histViol
 ```
 
+Violent crime is positively skewed across Philly neighborhoods. That is, there is a small cohort of communities with high levels of reported violence but most communities in the city has substantially less violence. Since my violence measure is a rate (and I do not have access to the raw count data), I'll create a natural log transformation of violence to generate a more normal distribution. 
+
 ```{r Variable Transformation}
 phillyWide$ln_viol_cr <- log(phillyWide$violent_crime_rate)
 histln_viol_cr <- ggplot(data=phillyWide, aes(x=ln_viol_cr)) + geom_histogram(color="black", fill="white") + labs(x="Logged Violent Crime Rate per 1,000", y="Count of Tracts")
 histln_viol_cr
 ```
 
+Now, let's take a look at the food stamp usage measure, which reflect the percent of families in a given tract that reported using food stamps benefits over the past year. I'll use this as a proxy measure of poverty, since no such measure exists in the ProgressPHL dataset.  
 ```{r Food Stamp Distribution}
 descr(phillyWide$food_stamp_usage)
 histFoodStamps <- ggplot(data=phillyWide, aes(x=food_stamp_usage)) + geom_histogram(color="blue", fill="white") + labs(x="% Households Reporting Food Stamp Usage", y="Count of Tracts")
 histFoodStamps
 ```
 
+I'm also interested in whether the relationship between tract-level poverty and violence varies, depending on levels of residential isolation. Isolation is an index ranging from 0-1 which reflects the extent to which racial/ethnic minorities are only exposed to one another. Higher values indicate greater isolation. I think that this is important to consider as research has shown how segregation concentrates disadvantage and unsafety for predominately black communities, but affluence and safety for predominately white communities (Peterson & Krivo, 2010). 
 ```{r Residential Isolation Distribution}
 descr(phillyWide$residential_isolation)
 histResIsol <- ggplot(data=phillyWide, aes(x=residential_isolation)) + geom_histogram(color="black", fill="white") + labs(x="Residential Isolation Index")
 histResIsol
 ```
 
+Scatterplots for the poverty -> violence and residential isolation -> violence both indicate positive relationships. In other words, both poor and isolated neighborhoods tend to have higher levels of violent crime. 
 ```{r Bivariate Relationships}
-scatterFSV <- ggplot(data = phillyWide, aes(x = food_stamp_usage, y = ln_viol_cr)) + geom_point() + geom_smooth(method = lm) + labs(x = "% Households Reporting Food Stamp Usage", y = "Logged Violent Crime Rate per 1,000")
+scatterFSV <- ggplot(data = phillyWide, aes(x = food_stamp_usage, y = ln_viol_cr, color=food_stamp_usage)) + geom_point(shape=16, size=4, alpha=.4) + geom_smooth(method = lm) + theme_minimal() + scale_color_gradient(low="#0091ff", high="#f0650e") + scale_alpha(range=c(.05, .5)) + labs(x = "% Households Reporting Food Stamp Usage", y = "Logged Violent Crime Rate per 1,000") + theme(legend.position="none")
 scatterFSV
 
 scatterRIV <- ggplot(data = phillyWide, aes(x=residential_isolation, y=ln_viol_cr)) + geom_point() + geom_smooth(method=lm) + labs(x="Residential Isolation Index", y="Logged Violent Crime Rate per 1,000")
 scatterRIV
 ```
 
+To confirm the slopes demonstrated in the scatterplots are true, I'm going to use linear regression. Model m1 shows that each unit increase in food stamp usage is associated with a statistically significant .04 increase in the logged violent crime rate.
 ```{r Linear Regression 1}
-summary(m1 <-lm(ln_viol_cr ~ food_stamp_usage, data=phillyWide))
-#Inf values on logged violent crime rate prevent linear model from running
-phillyWide[sapply(phillyWide, is.infinite)]<-NA
+phillyWide[sapply(phillyWide, is.infinite)]<-NA #Inf values on logged violent crime rate would prevent linear model from running
 summary(m1 <-lm(ln_viol_cr ~ food_stamp_usage, data=phillyWide))
 ```
 
+Marginal estimates are often more translatable and useful when explaining model effects. Below we see that when food stamp usage is at 20% we can expect the logged violent crime rate to be about 1.60. Additional estimates are shown for food stamp usage at 40% and 80%.
 ```{r Margins 1}
 foodstamp <- data.frame(food_stamp_usage = c(20, 40, 80))
 predict(m1, foodstamp)
 ```
 
+In linear regression model m2 I add in the effect of residential isolation. The effect of food stamp usage remains positive and significant. And each unit increase in the isolation index is associated with a statistically significant 1.25 increase in the logged violent crime rate.
 ```{r Linear Regression 2}
 summary(m2 <-lm(ln_viol_cr ~ food_stamp_usage + residential_isolation, data=phillyWide))
 ```
 
+But as noted earlier, I suspect that the relationship between food stamp usage and neighborhood violence to vary across levels of residential isolation. In model m3 I use an interaction effect to predict logged violence. According to model estimates, each unit increase in food stamp usage amplifies the effect of residential isolation on logged violence by 0.02. 
 ```{r Linear Regression 3}
 summary(m3 <-lm(ln_viol_cr ~ food_stamp_usage*residential_isolation, data=phillyWide))
 ```
 
+That's still a bit difficult of digest so I'll use the sjPlot package to visualize the predicted margins of violent crime based on m3. In the graph I show the predicted logged violent crime rate for increasing levels of food stamp usage when residential isolation is 1SD below the mean (red line), at the mean (blue line), and 1SD above the mean (green line). Across all levels of residential isolation, the effect of food stamp usage on violence is positive. However, we see that the relationship between food stamp usage and violence is strongest in communities that have the highest levels of residential isolation. This is indicated by the steepness of the green line slope, relative to the other lines.   
 ```{r Margins 2}
 library(sjPlot)
 plot_model(m3, type="int", mdrt.values = "meansd", axis.title=c("% Households Reporting Food Stamp Usage","Logged Violent Crime Rate per 1,000"), title="Predictive Margins of Violent Crime in Philadelphia Tracts", legend.title="Residential Isolation")
 ```
 
-#Still working on this
+# Conclusion
+What are the big take aways? First, the relationship between poverty (measured using the proxy of food stamp usage) and violent crime is strong. This is unsurprising considering extensive criminological literature on the subject matter. I should also note that neither poverty nor food stamp usage is a *cause* of violent crime. Both measures, however, are commonly associated with the relative presence of social control institutions known to suppress crime. These include but is not limited to quality schools, economic institutions, and neighborhood organizations. Second, the interaction effect between food stamp usage and poverty points to the historic and enduring consequences of racial segregation. These findings suggest that quality crime control mechanisms that could dampen the effect of poverty on violence likely vary by neighborhood ethnoracial composition. But these findings do not paint the entire picture. A more complete model would account for factors such as level of police presence, local collective efficacy, environmental conditions, and population instability.     
